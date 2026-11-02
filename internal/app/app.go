@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/0xengr/taskgo/internal/domain"
@@ -26,15 +27,67 @@ type AddTaskInput struct {
 	Title       string
 	Description string
 	Priority    domain.Priority
+	Target      ProjectTarget
+	ProjectName string
 }
 
-// AddTask validates capture input and persists a new Task.
+// AddTask validates capture input, resolves its Project, and persists it.
 func (a *App) AddTask(ctx context.Context, in AddTaskInput) (domain.Task, error) {
 	validated, err := domain.BuildTask(in.Title, in.Description, in.Priority)
 	if err != nil {
 		return domain.Task{}, err
 	}
-	return a.store.InsertTask(ctx, validated, a.now())
+
+	project, err := a.resolveTarget(ctx, in)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if project != nil {
+		validated.ProjectID = &project.ID
+	}
+
+	task, err := a.store.InsertTask(ctx, validated, a.now())
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if project != nil {
+		task.Project = &domain.ProjectRef{ID: project.ID, Name: project.Name}
+	}
+	return task, nil
+}
+
+func (a *App) resolveTarget(ctx context.Context, in AddTaskInput) (*domain.Project, error) {
+	switch in.Target {
+	case TargetInbox:
+		return nil, nil
+
+	case TargetProject:
+		project, err := a.findProject(ctx, in.ProjectName)
+		if err != nil {
+			return nil, err
+		}
+		if project.Archived() {
+			return nil, &domain.ConflictError{
+				Message: fmt.Sprintf("project %q is archived; unarchive it first", project.Name),
+			}
+		}
+		return &project, nil
+
+	default:
+		cwd, err := resolveCwd()
+		if err != nil {
+			return nil, fmt.Errorf("resolve current directory: %w", err)
+		}
+		projects, err := a.store.ListProjects(ctx, domain.VisibilityAll)
+		if err != nil {
+			return nil, err
+		}
+		project := DeepestProjectForPath(projects, cwd)
+		if project == nil || project.Archived() {
+			return nil, nil
+		}
+		return project, nil
+	}
 }
 
 // ListTasks returns open, unarchived Tasks in canonical order.

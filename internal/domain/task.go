@@ -5,6 +5,12 @@ import (
 	"time"
 )
 
+// ProjectRef is the identity a Task carries about its Project.
+type ProjectRef struct {
+	ID   int64
+	Name string
+}
+
 // Task is a single unit of work. It is either Open or Done, and separately
 // either active or Archived.
 type Task struct {
@@ -12,6 +18,7 @@ type Task struct {
 	Title       string
 	Description *string
 	Priority    Priority
+	Project     *ProjectRef
 	CreatedAt   time.Time
 	CompletedAt *time.Time
 	ArchivedAt  *time.Time
@@ -25,6 +32,7 @@ type NewTask struct {
 	Title       string
 	Description *string
 	Priority    Priority
+	ProjectID   *int64
 }
 
 // BuildTask validates capture input into a NewTask.

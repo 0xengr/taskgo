@@ -9,14 +9,19 @@ import (
 )
 
 type taskJSON struct {
-	ID          int64   `json:"id"`
-	Title       string  `json:"title"`
-	Description *string `json:"description"`
-	Priority    string  `json:"priority"`
-	Project     any     `json:"project"`
-	CreatedAt   string  `json:"created_at"`
-	CompletedAt *string `json:"completed_at"`
-	ArchivedAt  *string `json:"archived_at"`
+	ID          int64           `json:"id"`
+	Title       string          `json:"title"`
+	Description *string         `json:"description"`
+	Priority    string          `json:"priority"`
+	Project     *projectRefJSON `json:"project"`
+	CreatedAt   string          `json:"created_at"`
+	CompletedAt *string         `json:"completed_at"`
+	ArchivedAt  *string         `json:"archived_at"`
+}
+
+type projectRefJSON struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
 }
 
 func TestAddCreatesTaskInInbox(t *testing.T) {
