@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -26,8 +27,8 @@ func TestOpenCreatesSchema(t *testing.T) {
 	if err := db.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatalf("read user_version: %v", err)
 	}
-	if version != 1 {
-		t.Fatalf("user_version = %d, want 1", version)
+	if version != 2 {
+		t.Fatalf("user_version = %d, want 2", version)
 	}
 
 	var name string
@@ -161,6 +162,67 @@ func TestFailedMigrationRollsBack(t *testing.T) {
 		"SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'broken'").Scan(&name)
 	if err == nil {
 		t.Fatal("partially created table survived a failed migration")
+	}
+}
+
+func TestMigration0002PreservesTasks(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "taskgo.db")
+
+	initSQL, err := fs.ReadFile(migrationsFS, "migrations/0001_init.sql")
+	if err != nil {
+		t.Fatalf("read embedded 0001 migration: %v", err)
+	}
+	raw, err := sql.Open("sqlite", dsn(path))
+	if err != nil {
+		t.Fatalf("open raw: %v", err)
+	}
+	v1 := fstest.MapFS{
+		"migrations/0001_init.sql": &fstest.MapFile{Data: initSQL},
+	}
+	if err := migrate(ctx, raw, v1); err != nil {
+		t.Fatalf("apply schema 0001: %v", err)
+	}
+
+	const created = "2026-01-01T00:00:00.000000000Z"
+	if _, err := raw.ExecContext(ctx,
+		`INSERT INTO tasks (title, description, priority, created_at) VALUES ('legacy', NULL, 'medium', ?)`,
+		created,
+	); err != nil {
+		t.Fatalf("seed a version 0001 task: %v", err)
+	}
+	raw.Close()
+
+	db, err := Open(ctx, path)
+	if err != nil {
+		t.Fatalf("upgrade to version 0002: %v", err)
+	}
+	defer db.Close()
+
+	var version int
+	if err := db.db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatalf("read user_version: %v", err)
+	}
+	if version != 2 {
+		t.Fatalf("user_version = %d, want 2", version)
+	}
+
+	var projectID sql.NullInt64
+	if err := db.db.QueryRowContext(ctx,
+		`SELECT project_id FROM tasks WHERE title = 'legacy'`,
+	).Scan(&projectID); err != nil {
+		t.Fatalf("read upgraded task: %v", err)
+	}
+	if projectID.Valid {
+		t.Fatalf("legacy task gained project_id %d", projectID.Int64)
+	}
+
+	var projects int
+	if err := db.db.QueryRowContext(ctx, `SELECT count(*) FROM projects`).Scan(&projects); err != nil {
+		t.Fatalf("count projects: %v", err)
+	}
+	if projects != 0 {
+		t.Fatalf("projects = %d, want 0 after an upgrade", projects)
 	}
 }
 

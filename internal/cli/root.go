@@ -103,7 +103,7 @@ func newRoot(r *runner) *cobra.Command {
 	root.PersistentFlags().BoolVar(&r.json, "json", false, "emit JSON")
 	root.PersistentFlags().BoolVar(&r.noColor, "no-color", false, "disable color output")
 
-	root.AddCommand(newAddCmd(r), newListCmd(r))
+	root.AddCommand(newAddCmd(r), newListCmd(r), newProjectCmd(r))
 	return root
 }
 
@@ -119,6 +119,23 @@ func noUnknownCommand(_ *cobra.Command, args []string) error {
 		return &usageError{fmt.Errorf("unknown command %q", args[0])}
 	}
 	return nil
+}
+
+func exactlyTwoArgs(_ *cobra.Command, args []string) error {
+	if len(args) != 2 {
+		return &usageError{fmt.Errorf("expected 2 arguments, got %d", len(args))}
+	}
+	return nil
+}
+
+// withApp opens the store for one command and guarantees it is closed.
+func (r *runner) withApp(ctx context.Context, fn func(*app.App) error) error {
+	a, closeApp, err := r.openApp(ctx)
+	if err != nil {
+		return err
+	}
+	defer closeApp()
+	return fn(a)
 }
 
 func noArgs(_ *cobra.Command, args []string) error {
