@@ -24,4 +24,7 @@ type Store interface {
 	UpdateProjectName(ctx context.Context, id int64, name, nameKey string) (domain.Project, error)
 	UpdateProjectRepo(ctx context.Context, id int64, repoPath *string) (domain.Project, error)
 	UpdateProjectArchived(ctx context.Context, id int64, archivedAt *time.Time) (domain.Project, error)
+	CountProjectTasks(ctx context.Context, projectID int64) (int64, error)
+	DeleteProjectToInbox(ctx context.Context, projectID int64) (int64, error)
+	DeleteProjectWithTasks(ctx context.Context, projectID int64) error
 }

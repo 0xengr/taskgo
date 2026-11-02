@@ -137,6 +137,64 @@ func (d *DB) projectByID(ctx context.Context, id int64) (domain.Project, error) 
 	return scanProject(row)
 }
 
+func (d *DB) CountProjectTasks(ctx context.Context, projectID int64) (int64, error) {
+	var count int64
+	if err := d.db.QueryRowContext(ctx,
+		`SELECT count(*) FROM tasks WHERE project_id = ?`, projectID,
+	).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count project tasks: %w", err)
+	}
+	return count, nil
+}
+
+func (d *DB) DeleteProjectToInbox(ctx context.Context, projectID int64) (int64, error) {
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, fmt.Errorf("begin project deletion: %w", err)
+	}
+	defer tx.Rollback()
+
+	result, err := tx.ExecContext(ctx,
+		`UPDATE tasks SET project_id = NULL WHERE project_id = ?`, projectID)
+	if err != nil {
+		return 0, fmt.Errorf("reassign project tasks: %w", err)
+	}
+	moved, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("count reassigned tasks: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM projects WHERE id = ?`, projectID); err != nil {
+		return 0, fmt.Errorf("delete project: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("commit project deletion: %w", err)
+	}
+	return moved, nil
+}
+
+func (d *DB) DeleteProjectWithTasks(ctx context.Context, projectID int64) error {
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin project deletion: %w", err)
+	}
+	defer tx.Rollback()
+
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM tasks WHERE project_id = ?`, projectID); err != nil {
+		return fmt.Errorf("delete project tasks: %w", err)
+	}
+	if _, err := tx.ExecContext(ctx,
+		`DELETE FROM projects WHERE id = ?`, projectID); err != nil {
+		return fmt.Errorf("delete project: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit project deletion: %w", err)
+	}
+	return nil
+}
+
 type rowScanner interface {
 	Scan(dest ...any) error
 }
