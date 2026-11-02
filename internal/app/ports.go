@@ -16,6 +16,7 @@ type Store interface {
 	UpdateTaskCompleted(ctx context.Context, id int64, completedAt *time.Time) (domain.Task, error)
 	UpdateTaskArchived(ctx context.Context, id int64, archivedAt *time.Time) (domain.Task, error)
 	UpdateTask(ctx context.Context, id int64, update domain.TaskUpdate) (domain.Task, error)
+	DeleteTask(ctx context.Context, id int64) error
 
 	InsertProject(ctx context.Context, project domain.NewProject, createdAt time.Time) (domain.Project, error)
 	FindProjectByKey(ctx context.Context, key string) (domain.Project, error)
