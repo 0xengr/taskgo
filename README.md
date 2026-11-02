@@ -134,4 +134,6 @@ make bench      # p95 benchmarks on 10,000 tasks
 make clean      # remove build artifacts
 ```
 
+Make output is colored and animated on a terminal, plain when piped, and respects `NO_COLOR`; set `FORCE_COLOR=1` to force color in logs.
+
 Architecture: CLI → application → domain, with SQLite behind an application port. Command handlers parse flags and render output; they contain no business rules.
