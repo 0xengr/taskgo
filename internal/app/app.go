@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/0xengr/taskgo/internal/domain"
@@ -93,6 +94,45 @@ func (a *App) resolveTarget(ctx context.Context, in AddTaskInput) (*domain.Proje
 // ListTasks returns open, unarchived Tasks in canonical order.
 func (a *App) ListTasks(ctx context.Context) ([]domain.Task, error) {
 	return a.store.ListOpenActive(ctx)
+}
+
+// GetTask returns one Task by ID, including archived Tasks.
+func (a *App) GetTask(ctx context.Context, id int64) (domain.Task, error) {
+	task, err := a.store.FindTaskByID(ctx, id)
+	if errors.Is(err, domain.ErrNotFound) {
+		return domain.Task{}, &domain.NotFoundError{Kind: "task", Ref: "#" + strconv.FormatInt(id, 10)}
+	}
+	if err != nil {
+		return domain.Task{}, err
+	}
+	return task, nil
+}
+
+// CompleteTask marks a Task Done. Repeating it preserves the original
+// completion time.
+func (a *App) CompleteTask(ctx context.Context, id int64) (domain.Task, error) {
+	task, err := a.GetTask(ctx, id)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if !task.Open() {
+		return task, nil
+	}
+
+	now := a.now()
+	return a.store.UpdateTaskCompleted(ctx, id, &now)
+}
+
+// ReopenTask clears completion. Repeating it on an open Task is a no-op.
+func (a *App) ReopenTask(ctx context.Context, id int64) (domain.Task, error) {
+	task, err := a.GetTask(ctx, id)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if task.Open() {
+		return task, nil
+	}
+	return a.store.UpdateTaskCompleted(ctx, id, nil)
 }
 
 // AddProjectInput carries raw Project creation input from the CLI.

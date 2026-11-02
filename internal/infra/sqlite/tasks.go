@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -11,6 +12,12 @@ import (
 
 // timestampLayout is fixed-width so text ordering matches chronological order.
 const timestampLayout = "2006-01-02T15:04:05.000000000Z"
+
+const taskSelect = `
+	SELECT t.id, t.title, t.description, t.priority, t.created_at,
+	       t.completed_at, t.archived_at, p.id, p.name
+	FROM tasks AS t
+	LEFT JOIN projects AS p ON p.id = t.project_id`
 
 func formatTimestamp(t time.Time) string {
 	return t.UTC().Format(timestampLayout)
@@ -51,11 +58,7 @@ func (d *DB) InsertTask(ctx context.Context, task domain.NewTask, createdAt time
 }
 
 func (d *DB) ListOpenActive(ctx context.Context) ([]domain.Task, error) {
-	rows, err := d.db.QueryContext(ctx, `
-		SELECT t.id, t.title, t.description, t.priority, t.created_at,
-		       t.completed_at, t.archived_at, p.id, p.name
-		FROM tasks AS t
-		LEFT JOIN projects AS p ON p.id = t.project_id
+	rows, err := d.db.QueryContext(ctx, taskSelect+`
 		WHERE t.completed_at IS NULL
 		  AND t.archived_at IS NULL
 		  AND (p.id IS NULL OR p.archived_at IS NULL)
@@ -85,7 +88,34 @@ func (d *DB) ListOpenActive(ctx context.Context) ([]domain.Task, error) {
 	return tasks, nil
 }
 
-func scanTask(rows *sql.Rows) (domain.Task, error) {
+func (d *DB) FindTaskByID(ctx context.Context, id int64) (domain.Task, error) {
+	row := d.db.QueryRowContext(ctx, taskSelect+`
+		WHERE t.id = ?`, id)
+
+	task, err := scanTask(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.Task{}, domain.ErrNotFound
+	}
+	if err != nil {
+		return domain.Task{}, err
+	}
+	return task, nil
+}
+
+func (d *DB) UpdateTaskCompleted(ctx context.Context, id int64, completedAt *time.Time) (domain.Task, error) {
+	var value any
+	if completedAt != nil {
+		value = formatTimestamp(*completedAt)
+	}
+	if _, err := d.db.ExecContext(ctx,
+		`UPDATE tasks SET completed_at = ? WHERE id = ?`, value, id,
+	); err != nil {
+		return domain.Task{}, fmt.Errorf("update task completion: %w", err)
+	}
+	return d.FindTaskByID(ctx, id)
+}
+
+func scanTask(row rowScanner) (domain.Task, error) {
 	var (
 		task                             domain.Task
 		description, completed, archived sql.NullString
@@ -93,7 +123,7 @@ func scanTask(rows *sql.Rows) (domain.Task, error) {
 		projectID                        sql.NullInt64
 		priority, created                string
 	)
-	if err := rows.Scan(
+	if err := row.Scan(
 		&task.ID,
 		&task.Title,
 		&description,
