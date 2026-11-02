@@ -10,10 +10,10 @@ help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "%-8s %s\n", $$1, $$2}'
 
 build: ## Build the binary into bin/
-	$(GO) build -o $(BIN_DIR)/$(BINARY) .
+	$(GO) build -o $(BIN_DIR)/$(BINARY) ./cmd/taskgo
 
 run: ## Run the program
-	$(GO) run .
+	$(GO) run ./cmd/taskgo
 
 test: ## Run all tests
 	$(GO) test ./...
