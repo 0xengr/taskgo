@@ -7,12 +7,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
 
-// DB is the SQLite-backed store. It implements the application's TaskStore
-// port and owns connection setup and migrations.
+// openRetryWindow bounds retries for the creation race: several processes
+// starting together can collide while the driver applies journal_mode. It is
+// deliberately short; a genuinely stuck lock still fails with a clear error.
+const openRetryWindow = 5 * time.Second
+
+// DB is the SQLite-backed store. It implements the application's Store port
+// and owns connection setup and migrations.
 type DB struct {
 	db *sql.DB
 }
@@ -26,6 +32,29 @@ func Open(ctx context.Context, path string) (*DB, error) {
 		}
 	}
 
+	deadline := time.Now().Add(openRetryWindow)
+	delay := 10 * time.Millisecond
+	for {
+		db, err := openOnce(ctx, path)
+		if err == nil {
+			return db, nil
+		}
+		if !isBusyError(err) || time.Now().After(deadline) {
+			return nil, describeDBError(path, err)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, describeDBError(path, ctx.Err())
+		case <-time.After(delay):
+		}
+		if delay < 100*time.Millisecond {
+			delay *= 2
+		}
+	}
+}
+
+func openOnce(ctx context.Context, path string) (*DB, error) {
 	sqlDB, err := sql.Open("sqlite", dsn(path))
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
@@ -35,15 +64,14 @@ func Open(ctx context.Context, path string) (*DB, error) {
 
 	if err := sqlDB.PingContext(ctx); err != nil {
 		sqlDB.Close()
-		return nil, describeDBError(path, fmt.Errorf("open database: %w", err))
+		return nil, fmt.Errorf("open database: %w", err)
 	}
 
-	db := &DB{db: sqlDB}
 	if err := migrate(ctx, sqlDB, migrationsFS); err != nil {
 		sqlDB.Close()
-		return nil, describeDBError(path, err)
+		return nil, err
 	}
-	return db, nil
+	return &DB{db: sqlDB}, nil
 }
 
 // dsn applies pragmas on every connection the driver opens, rather than only
@@ -58,6 +86,11 @@ func dsn(path string) string {
 		"_txlock=immediate",
 	}
 	return "file:" + filepath.ToSlash(path) + "?" + strings.Join(pragmas, "&")
+}
+
+func isBusyError(err error) bool {
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "database is locked") || strings.Contains(text, "sqlite_busy")
 }
 
 // describeDBError adds the database path and a hint for the failures users

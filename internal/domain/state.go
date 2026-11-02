@@ -32,6 +32,7 @@ type TaskQuery struct {
 	State      State
 	Visibility Visibility
 	ProjectID  *int64
+	Priority   *Priority
 	Limit      int
 }
 

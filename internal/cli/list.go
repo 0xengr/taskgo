@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/0xengr/taskgo/internal/app"
 	"github.com/0xengr/taskgo/internal/domain"
@@ -12,6 +13,9 @@ func newListCmd(r *runner) *cobra.Command {
 	var (
 		stateRaw      string
 		visibilityRaw string
+		priorityRaw   string
+		projectName   string
+		here          bool
 		all           bool
 	)
 
@@ -25,12 +29,38 @@ func newListCmd(r *runner) *cobra.Command {
 				return err
 			}
 
+			projectSet := cmd.Flags().Changed("project")
+			if projectSet && here {
+				return &usageError{fmt.Errorf("--project and --here cannot be used together")}
+			}
+
+			scope := app.ScopeAll
+			switch {
+			case here:
+				scope = app.ScopeHere
+			case projectSet:
+				scope = app.ScopeProject
+			}
+
+			query := domain.TaskQuery{State: state, Visibility: visibility}
+			if cmd.Flags().Changed("priority") {
+				if strings.TrimSpace(priorityRaw) == "" {
+					return &usageError{fmt.Errorf("priority cannot be empty")}
+				}
+				priority, err := domain.ParsePriority(priorityRaw)
+				if err != nil {
+					return err
+				}
+				query.Priority = &priority
+			}
+
 			var tasks []domain.Task
 			if err := r.withApp(cmd.Context(), func(a *app.App) error {
 				var err error
-				tasks, err = a.ListTasks(cmd.Context(), domain.TaskQuery{
-					State:      state,
-					Visibility: visibility,
+				tasks, err = a.ListTasks(cmd.Context(), app.ListInput{
+					Query:       query,
+					Scope:       scope,
+					ProjectName: projectName,
 				})
 				return err
 			}); err != nil {
@@ -52,6 +82,9 @@ func newListCmd(r *runner) *cobra.Command {
 
 	cmd.Flags().StringVar(&stateRaw, "state", string(domain.StateOpen), "open, done, or all")
 	cmd.Flags().StringVar(&visibilityRaw, "visibility", string(domain.VisibilityActive), "active, archived, or all")
+	cmd.Flags().StringVar(&priorityRaw, "priority", "", "filter by priority: low, medium, or high")
+	cmd.Flags().StringVarP(&projectName, "project", "p", "", "filter by project name")
+	cmd.Flags().BoolVar(&here, "here", false, "filter to the detected project")
 	cmd.Flags().BoolVar(&all, "all", false, "include done and archived tasks")
 	return cmd
 }

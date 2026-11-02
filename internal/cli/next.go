@@ -28,12 +28,12 @@ func newNextCmd(r *runner) *cobra.Command {
 				return &usageError{errors.New("--project and --here cannot be used together")}
 			}
 
-			scope := app.NextAll
+			scope := app.ScopeAll
 			switch {
 			case here:
-				scope = app.NextHere
+				scope = app.ScopeHere
 			case cmd.Flags().Changed("project"):
-				scope = app.NextProject
+				scope = app.ScopeProject
 			}
 
 			var tasks []domain.Task

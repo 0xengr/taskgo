@@ -4,7 +4,7 @@ A local-first task and project tracker for developers, built for the terminal.
 
 `taskgo` is designed around one idea: capturing work should never interrupt work. It keeps everything in a single SQLite database on your machine, infers the Project from the repository you are standing in, and reserves tidying up for a separate, deliberate act.
 
-> **Status: design phase.** The domain model, ADRs, spec, and ticket breakdown are complete. The Go layout exists, but no command is implemented yet. The command surface below is the agreed v1 scope, not current behavior.
+> **Status: v1 implemented.** Capture, repository detection, the Task and Project lifecycle, archiving, deletion, `next`, JSON output, migrations, and benchmarks are working. There are no release binaries yet; build from source.
 
 ## Why another task tracker
 
@@ -16,16 +16,19 @@ A local-first task and project tracker for developers, built for the terminal.
 
 ## Install
 
-Not yet released. To build from source:
+Requires Go 1.27 or newer.
 
 ```sh
 make build        # produces bin/taskgo
-./bin/taskgo      # currently a no-op entrypoint
+./bin/taskgo version
+./bin/taskgo add "try taskgo"
 ```
 
-Requires Go 1.27 or newer.
+The database is created automatically on first use.
 
-## Planned command surface
+## Command surface
+
+Every command supports `--json` and the exit-code contract below.
 
 ### Tasks
 
@@ -54,6 +57,13 @@ Requires Go 1.27 or newer.
 | `taskgo project unarchive <name>` | Restore a Project and its Tasks |
 | `taskgo project delete <name>` | Delete a Project; `--to-inbox` preserves Tasks, `--force` destroys them |
 
+### Other
+
+| Command | Purpose |
+| --- | --- |
+| `taskgo version` | Print the build version and commit |
+| `taskgo help` | Show commands and flags |
+
 ### Examples
 
 ```sh
@@ -68,12 +78,13 @@ taskgo project add "API" --repo ~/work/api
 ## Output contract
 
 - Human-readable by default; `--json` on every command.
-- JSON lists are arrays, `show` returns one resource, `next` returns one resource or `null`, mutations return the affected resource.
+- JSON lists are arrays, `show` returns one resource, mutations return the affected resource.
+- `next` returns one resource or `null` with the default count; with `--count N` greater than 1 it returns an array.
 - Data goes to stdout; errors and diagnostics go to stderr.
 - Exit `0` success, `1` domain or runtime failure, `2` usage error. A declined confirmation exits `1`.
 - JSON timestamps are RFC 3339 UTC; human output uses local time.
 - Color is TTY-detected and disabled by `NO_COLOR` or `--no-color`. JSON never contains ANSI or diagnostics.
-- JSON shapes are documented but explicitly **unstable until v1.0**.
+- JSON shapes are documented in [`docs/json.md`](docs/json.md) and are explicitly **unstable until v1.0**.
 
 ## Data and storage
 
@@ -105,6 +116,8 @@ Explicitly out: remote sync, multi-device or multi-user use, remote trackers, im
 | --- | --- |
 | [`GLOSSARY.md`](GLOSSARY.md) | The vocabulary: Task, Project, Inbox, Archived, Detected Project, and more |
 | [`docs/adr/`](docs/adr/) | Six architectural decisions, including the domain model, storage, IDs, and detection |
+| [`docs/json.md`](docs/json.md) | JSON shapes for every command, explicitly unstable until v1.0 |
+| [`docs/benchmarks.md`](docs/benchmarks.md) | Reference environment and p95 results on 10,000 Tasks |
 | [`.scratch/taskgo-v1/spec.md`](.scratch/taskgo-v1/spec.md) | The full v1 spec and testing seams |
 | [`.scratch/taskgo-v1/issues/`](.scratch/taskgo-v1/issues/) | The 12 implementation tickets |
 | [`AGENTS.md`](AGENTS.md) | Working rules for agents in this repository |
@@ -112,11 +125,13 @@ Explicitly out: remote sync, multi-device or multi-user use, remote trackers, im
 ## Development
 
 ```sh
-make help     # list targets
-make build    # build bin/taskgo
-make test     # run tests
-make check    # format, vet, and test
-make clean    # remove build artifacts
+make help       # list targets
+make build      # build bin/taskgo with version metadata
+make build-all  # cross-compile Linux, macOS, and Windows binaries
+make test       # run tests
+make check      # format, vet, and test
+make bench      # p95 benchmarks on 10,000 tasks
+make clean      # remove build artifacts
 ```
 
 Architecture: CLI → application → domain, with SQLite behind an application port. Command handlers parse flags and render output; they contain no business rules.

@@ -101,8 +101,47 @@ func (a *App) detectedProject(ctx context.Context) (*domain.Project, error) {
 }
 
 // ListTasks returns Tasks matching the query in canonical order.
-func (a *App) ListTasks(ctx context.Context, query domain.TaskQuery) ([]domain.Task, error) {
+func (a *App) ListTasks(ctx context.Context, in ListInput) ([]domain.Task, error) {
+	query := in.Query
+
+	projectID, err := a.resolveScopeProjectID(ctx, in.Scope, in.ProjectName)
+	if err != nil {
+		return nil, err
+	}
+	if projectID != nil {
+		query.ProjectID = projectID
+	}
 	return a.store.ListTasks(ctx, query)
+}
+
+// ListInput carries the list filters and optional Project scope.
+type ListInput struct {
+	Query       domain.TaskQuery
+	Scope       Scope
+	ProjectName string
+}
+
+// resolveScopeProjectID turns a scope into a Project filter, or nil for all.
+func (a *App) resolveScopeProjectID(ctx context.Context, scope Scope, projectName string) (*int64, error) {
+	switch scope {
+	case ScopeProject:
+		project, err := a.findProject(ctx, projectName)
+		if err != nil {
+			return nil, err
+		}
+		return &project.ID, nil
+	case ScopeHere:
+		project, err := a.detectedProject(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if project == nil {
+			return nil, ErrNoActiveProject
+		}
+		return &project.ID, nil
+	default:
+		return nil, nil
+	}
 }
 
 // ArchiveTask hides a Task without changing its completion state. It is
@@ -424,21 +463,21 @@ func (a *App) DeleteProject(ctx context.Context, name string, strategy ProjectDe
 	return DeletedProject{Project: project}, nil
 }
 
-// NextScope selects the candidate set for next.
-type NextScope int
+// Scope selects the candidate set for next.
+type Scope int
 
 const (
-	// NextAll considers every Project and the Inbox.
-	NextAll NextScope = iota
-	// NextProject narrows to one named Project.
-	NextProject
-	// NextHere narrows to the Detected Project.
-	NextHere
+	// ScopeAll considers every Project and the Inbox.
+	ScopeAll Scope = iota
+	// ScopeProject narrows to one named Project.
+	ScopeProject
+	// ScopeHere narrows to the Detected Project.
+	ScopeHere
 )
 
 // NextInput carries the request for a next selection.
 type NextInput struct {
-	Scope       NextScope
+	Scope       Scope
 	ProjectName string
 	Count       int
 }
@@ -455,22 +494,12 @@ func (a *App) NextTasks(ctx context.Context, in NextInput) ([]domain.Task, error
 		Limit:      in.Count,
 	}
 
-	switch in.Scope {
-	case NextProject:
-		project, err := a.findProject(ctx, in.ProjectName)
-		if err != nil {
-			return nil, err
-		}
-		query.ProjectID = &project.ID
-	case NextHere:
-		project, err := a.detectedProject(ctx)
-		if err != nil {
-			return nil, err
-		}
-		if project == nil {
-			return nil, ErrNoActiveProject
-		}
-		query.ProjectID = &project.ID
+	projectID, err := a.resolveScopeProjectID(ctx, in.Scope, in.ProjectName)
+	if err != nil {
+		return nil, err
+	}
+	if projectID != nil {
+		query.ProjectID = projectID
 	}
 
 	return a.store.ListTasks(ctx, query)
