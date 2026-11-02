@@ -3,24 +3,37 @@ package cli
 import (
 	"fmt"
 
+	"github.com/0xengr/taskgo/internal/app"
 	"github.com/0xengr/taskgo/internal/domain"
 	"github.com/spf13/cobra"
 )
 
 func newListCmd(r *runner) *cobra.Command {
-	return &cobra.Command{
+	var (
+		stateRaw      string
+		visibilityRaw string
+		all           bool
+	)
+
+	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List open tasks",
+		Short: "List tasks",
 		Args:  noArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			a, closeApp, err := r.openApp(cmd.Context())
+			state, visibility, err := parseSelection(cmd, stateRaw, visibilityRaw, all)
 			if err != nil {
 				return err
 			}
-			defer closeApp()
 
-			tasks, err := a.ListTasks(cmd.Context())
-			if err != nil {
+			var tasks []domain.Task
+			if err := r.withApp(cmd.Context(), func(a *app.App) error {
+				var err error
+				tasks, err = a.ListTasks(cmd.Context(), domain.TaskQuery{
+					State:      state,
+					Visibility: visibility,
+				})
+				return err
+			}); err != nil {
 				return err
 			}
 
@@ -36,13 +49,42 @@ func newListCmd(r *runner) *cobra.Command {
 			return nil
 		},
 	}
+
+	cmd.Flags().StringVar(&stateRaw, "state", string(domain.StateOpen), "open, done, or all")
+	cmd.Flags().StringVar(&visibilityRaw, "visibility", string(domain.VisibilityActive), "active, archived, or all")
+	cmd.Flags().BoolVar(&all, "all", false, "include done and archived tasks")
+	return cmd
+}
+
+// parseSelection resolves the two independent list dimensions. --all is a
+// shortcut for both, but never silently overrides an explicit dimension.
+func parseSelection(cmd *cobra.Command, stateRaw, visibilityRaw string, all bool) (domain.State, domain.Visibility, error) {
+	if all {
+		if cmd.Flags().Changed("state") || cmd.Flags().Changed("visibility") {
+			return "", "", &usageError{fmt.Errorf("--all cannot be combined with --state or --visibility")}
+		}
+		return domain.StateAll, domain.VisibilityAll, nil
+	}
+
+	state, err := domain.ParseState(stateRaw)
+	if err != nil {
+		return "", "", err
+	}
+	visibility, err := domain.ParseVisibility(visibilityRaw)
+	if err != nil {
+		return "", "", err
+	}
+	return state, visibility, nil
 }
 
 func (r *runner) printTasks(tasks []domain.Task) {
 	for _, task := range tasks {
 		suffix := ""
 		if task.Project != nil {
-			suffix = "  [" + task.Project.Name + "]"
+			suffix += "  [" + task.Project.Name + "]"
+		}
+		if task.Archived() {
+			suffix += "  (archived)"
 		}
 		fmt.Fprintf(r.out, "#%-4d %s %s%s\n", task.ID, r.priorityLabel(task.Priority), task.Title, suffix)
 	}

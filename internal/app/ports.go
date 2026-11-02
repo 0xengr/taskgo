@@ -11,9 +11,10 @@ import (
 // application layer depends only on this interface.
 type Store interface {
 	InsertTask(ctx context.Context, task domain.NewTask, createdAt time.Time) (domain.Task, error)
-	ListOpenActive(ctx context.Context) ([]domain.Task, error)
+	ListTasks(ctx context.Context, query domain.TaskQuery) ([]domain.Task, error)
 	FindTaskByID(ctx context.Context, id int64) (domain.Task, error)
 	UpdateTaskCompleted(ctx context.Context, id int64, completedAt *time.Time) (domain.Task, error)
+	UpdateTaskArchived(ctx context.Context, id int64, archivedAt *time.Time) (domain.Task, error)
 
 	InsertProject(ctx context.Context, project domain.NewProject, createdAt time.Time) (domain.Project, error)
 	FindProjectByKey(ctx context.Context, key string) (domain.Project, error)

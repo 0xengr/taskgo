@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/0xengr/taskgo/internal/domain"
@@ -57,18 +58,42 @@ func (d *DB) InsertTask(ctx context.Context, task domain.NewTask, createdAt time
 	}, nil
 }
 
-func (d *DB) ListOpenActive(ctx context.Context) ([]domain.Task, error) {
-	rows, err := d.db.QueryContext(ctx, taskSelect+`
-		WHERE t.completed_at IS NULL
-		  AND t.archived_at IS NULL
-		  AND (p.id IS NULL OR p.archived_at IS NULL)
+func (d *DB) ListTasks(ctx context.Context, filter domain.TaskQuery) ([]domain.Task, error) {
+	filter = filter.Normalized()
+
+	conditions := make([]string, 0, 3)
+	switch filter.State {
+	case domain.StateOpen:
+		conditions = append(conditions, "t.completed_at IS NULL")
+	case domain.StateDone:
+		conditions = append(conditions, "t.completed_at IS NOT NULL")
+	}
+	switch filter.Visibility {
+	case domain.VisibilityActive:
+		conditions = append(conditions,
+			"t.archived_at IS NULL",
+			"(p.id IS NULL OR p.archived_at IS NULL)",
+		)
+	case domain.VisibilityArchived:
+		conditions = append(conditions,
+			"(t.archived_at IS NOT NULL OR p.archived_at IS NOT NULL)",
+		)
+	}
+
+	query := taskSelect
+	if len(conditions) > 0 {
+		query += "\n\t\tWHERE " + strings.Join(conditions, "\n\t\t  AND ")
+	}
+	query += `
 		ORDER BY CASE t.priority
 		             WHEN 'high' THEN 0
 		             WHEN 'medium' THEN 1
 		             ELSE 2
 		         END,
 		         t.created_at ASC,
-		         t.id ASC`)
+		         t.id ASC`
+
+	rows, err := d.db.QueryContext(ctx, query)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -111,6 +136,19 @@ func (d *DB) UpdateTaskCompleted(ctx context.Context, id int64, completedAt *tim
 		`UPDATE tasks SET completed_at = ? WHERE id = ?`, value, id,
 	); err != nil {
 		return domain.Task{}, fmt.Errorf("update task completion: %w", err)
+	}
+	return d.FindTaskByID(ctx, id)
+}
+
+func (d *DB) UpdateTaskArchived(ctx context.Context, id int64, archivedAt *time.Time) (domain.Task, error) {
+	var value any
+	if archivedAt != nil {
+		value = formatTimestamp(*archivedAt)
+	}
+	if _, err := d.db.ExecContext(ctx,
+		`UPDATE tasks SET archived_at = ? WHERE id = ?`, value, id,
+	); err != nil {
+		return domain.Task{}, fmt.Errorf("update task archive state: %w", err)
 	}
 	return d.FindTaskByID(ctx, id)
 }
