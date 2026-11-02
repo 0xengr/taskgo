@@ -26,8 +26,13 @@ func parseTimestamp(raw string) (time.Time, error) {
 
 func (d *DB) InsertTask(ctx context.Context, task domain.NewTask, createdAt time.Time) (domain.Task, error) {
 	result, err := d.db.ExecContext(ctx,
-		`INSERT INTO tasks (title, description, priority, created_at) VALUES (?, ?, ?, ?)`,
-		task.Title, nullableString(task.Description), string(task.Priority), formatTimestamp(createdAt),
+		`INSERT INTO tasks (title, description, priority, project_id, created_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		task.Title,
+		nullableString(task.Description),
+		string(task.Priority),
+		nullableInt64(task.ProjectID),
+		formatTimestamp(createdAt),
 	)
 	if err != nil {
 		return domain.Task{}, fmt.Errorf("insert task: %w", err)
@@ -47,16 +52,20 @@ func (d *DB) InsertTask(ctx context.Context, task domain.NewTask, createdAt time
 
 func (d *DB) ListOpenActive(ctx context.Context) ([]domain.Task, error) {
 	rows, err := d.db.QueryContext(ctx, `
-		SELECT id, title, description, priority, created_at, completed_at, archived_at
-		FROM tasks
-		WHERE completed_at IS NULL AND archived_at IS NULL
-		ORDER BY CASE priority
+		SELECT t.id, t.title, t.description, t.priority, t.created_at,
+		       t.completed_at, t.archived_at, p.id, p.name
+		FROM tasks AS t
+		LEFT JOIN projects AS p ON p.id = t.project_id
+		WHERE t.completed_at IS NULL
+		  AND t.archived_at IS NULL
+		  AND (p.id IS NULL OR p.archived_at IS NULL)
+		ORDER BY CASE t.priority
 		             WHEN 'high' THEN 0
 		             WHEN 'medium' THEN 1
 		             ELSE 2
 		         END,
-		         created_at ASC,
-		         id ASC`)
+		         t.created_at ASC,
+		         t.id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
@@ -80,6 +89,8 @@ func scanTask(rows *sql.Rows) (domain.Task, error) {
 	var (
 		task                             domain.Task
 		description, completed, archived sql.NullString
+		projectName                      sql.NullString
+		projectID                        sql.NullInt64
 		priority, created                string
 	)
 	if err := rows.Scan(
@@ -90,6 +101,8 @@ func scanTask(rows *sql.Rows) (domain.Task, error) {
 		&created,
 		&completed,
 		&archived,
+		&projectID,
+		&projectName,
 	); err != nil {
 		return domain.Task{}, fmt.Errorf("scan task: %w", err)
 	}
@@ -100,6 +113,7 @@ func scanTask(rows *sql.Rows) (domain.Task, error) {
 		return domain.Task{}, err
 	}
 	task.CreatedAt = createdAt
+
 	if description.Valid {
 		task.Description = &description.String
 	}
@@ -117,10 +131,20 @@ func scanTask(rows *sql.Rows) (domain.Task, error) {
 		}
 		task.ArchivedAt = &archivedAt
 	}
+	if projectID.Valid {
+		task.Project = &domain.ProjectRef{ID: projectID.Int64, Name: projectName.String}
+	}
 	return task, nil
 }
 
 func nullableString(value *string) any {
+	if value == nil {
+		return nil
+	}
+	return *value
+}
+
+func nullableInt64(value *int64) any {
 	if value == nil {
 		return nil
 	}

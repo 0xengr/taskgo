@@ -40,7 +40,11 @@ func newListCmd(r *runner) *cobra.Command {
 
 func (r *runner) printTasks(tasks []domain.Task) {
 	for _, task := range tasks {
-		fmt.Fprintf(r.out, "#%-4d %s %s\n", task.ID, r.priorityLabel(task.Priority), task.Title)
+		suffix := ""
+		if task.Project != nil {
+			suffix = "  [" + task.Project.Name + "]"
+		}
+		fmt.Fprintf(r.out, "#%-4d %s %s%s\n", task.ID, r.priorityLabel(task.Priority), task.Title, suffix)
 	}
 }
 

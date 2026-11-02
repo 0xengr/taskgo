@@ -49,9 +49,14 @@ type result struct {
 
 func run(t *testing.T, dbPath string, args ...string) result {
 	t.Helper()
+	return runIn(t, t.TempDir(), dbPath, args...)
+}
+
+func runIn(t *testing.T, dir, dbPath string, args ...string) result {
+	t.Helper()
 
 	cmd := exec.Command(binaryPath, args...)
-	cmd.Dir = t.TempDir()
+	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "TASKGO_DB="+dbPath, "NO_COLOR=1")
 
 	var stdout, stderr bytes.Buffer
