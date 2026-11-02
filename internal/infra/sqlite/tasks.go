@@ -186,6 +186,21 @@ func (d *DB) UpdateTask(ctx context.Context, id int64, update domain.TaskUpdate)
 	return d.FindTaskByID(ctx, id)
 }
 
+func (d *DB) DeleteTask(ctx context.Context, id int64) error {
+	result, err := d.db.ExecContext(ctx, `DELETE FROM tasks WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete task: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete task: %w", err)
+	}
+	if affected == 0 {
+		return domain.ErrNotFound
+	}
+	return nil
+}
+
 func scanTask(row rowScanner) (domain.Task, error) {
 	var (
 		task                             domain.Task

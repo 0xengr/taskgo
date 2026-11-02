@@ -12,6 +12,7 @@ import (
 	"github.com/0xengr/taskgo/internal/domain"
 	"github.com/0xengr/taskgo/internal/infra/sqlite"
 	"github.com/spf13/cobra"
+	"golang.org/x/term"
 )
 
 const (
@@ -30,6 +31,7 @@ func (e *usageError) Error() string { return e.err.Error() }
 func (e *usageError) Unwrap() error { return e.err }
 
 type runner struct {
+	in      io.Reader
 	out     io.Writer
 	errOut  io.Writer
 	json    bool
@@ -38,8 +40,9 @@ type runner struct {
 }
 
 // Execute runs the command surface and returns the process exit code.
-func Execute(args []string, stdout, stderr io.Writer) int {
+func Execute(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	r := &runner{
+		in:      stdin,
 		out:     stdout,
 		errOut:  stderr,
 		openApp: openDefaultApp,
@@ -112,6 +115,7 @@ func newRoot(r *runner) *cobra.Command {
 		newArchiveCmd(r),
 		newUnarchiveCmd(r),
 		newEditCmd(r),
+		newDeleteCmd(r),
 		newProjectCmd(r),
 	)
 	return root
@@ -172,9 +176,14 @@ func (r *runner) colorEnabled() bool {
 	if !ok {
 		return false
 	}
-	info, err := file.Stat()
-	if err != nil {
+	return term.IsTerminal(int(file.Fd()))
+}
+
+// stdinIsTerminal reports whether the session can answer a prompt.
+func (r *runner) stdinIsTerminal() bool {
+	file, ok := r.in.(*os.File)
+	if !ok {
 		return false
 	}
-	return info.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(int(file.Fd()))
 }

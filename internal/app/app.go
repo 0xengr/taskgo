@@ -248,6 +248,22 @@ func (a *App) EditTask(ctx context.Context, in EditTaskInput) (domain.Task, erro
 	return a.store.UpdateTask(ctx, in.ID, update)
 }
 
+// DeleteTask permanently removes a Task and returns the resource as it was
+// immediately before deletion.
+func (a *App) DeleteTask(ctx context.Context, id int64) (domain.Task, error) {
+	task, err := a.GetTask(ctx, id)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if err := a.store.DeleteTask(ctx, id); err != nil {
+		if errors.Is(err, domain.ErrNotFound) {
+			return domain.Task{}, &domain.NotFoundError{Kind: "task", Ref: "#" + strconv.FormatInt(id, 10)}
+		}
+		return domain.Task{}, err
+	}
+	return task, nil
+}
+
 // AddProjectInput carries raw Project creation input from the CLI.
 type AddProjectInput struct {
 	Name     string

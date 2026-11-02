@@ -235,6 +235,63 @@ func newEditCmd(r *runner) *cobra.Command {
 	return cmd
 }
 
+func newDeleteCmd(r *runner) *cobra.Command {
+	var force bool
+
+	cmd := &cobra.Command{
+		Use:   "delete <id>",
+		Short: "Permanently delete a task",
+		Args:  exactlyOneArg,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parseTaskID(args[0])
+			if err != nil {
+				return err
+			}
+
+			if !force {
+				if !r.stdinIsTerminal() {
+					return errors.New("refusing to delete without confirmation; pass --force in non-interactive sessions")
+				}
+
+				var existing domain.Task
+				if err := r.withApp(cmd.Context(), func(a *app.App) error {
+					var err error
+					existing, err = a.GetTask(cmd.Context(), id)
+					return err
+				}); err != nil {
+					return err
+				}
+
+				ok, err := confirm(r.in, r.errOut, fmt.Sprintf("Delete #%d %q? [y/N] ", existing.ID, existing.Title))
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return errors.New("deletion cancelled")
+				}
+			}
+
+			var task domain.Task
+			if err := r.withApp(cmd.Context(), func(a *app.App) error {
+				var err error
+				task, err = a.DeleteTask(cmd.Context(), id)
+				return err
+			}); err != nil {
+				return err
+			}
+
+			if r.json {
+				return r.writeJSON(newTaskView(task))
+			}
+			fmt.Fprintf(r.out, "Deleted #%d\n", task.ID)
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&force, "force", false, "delete without confirmation")
+	return cmd
+}
+
 func exactlyOneArg(_ *cobra.Command, args []string) error {
 	if len(args) != 1 {
 		return &usageError{fmt.Errorf("expected 1 argument, got %d", len(args))}
