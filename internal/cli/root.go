@@ -71,7 +71,7 @@ func presentError(err error) error {
 		return err
 	}
 	if strings.Contains(text, "database is locked") || strings.Contains(text, "sqlite_busy") {
-		return errors.New("database is busy; another taskgo process is using it")
+		return fmt.Errorf("database is busy; another taskgo process is using it: %w", err)
 	}
 	return err
 }
@@ -134,6 +134,7 @@ func newRoot(r *runner) *cobra.Command {
 		newEditCmd(r),
 		newDeleteCmd(r),
 		newProjectCmd(r),
+		newVersionCmd(r),
 	)
 	return root
 }

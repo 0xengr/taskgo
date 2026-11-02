@@ -84,6 +84,10 @@ func (d *DB) ListTasks(ctx context.Context, filter domain.TaskQuery) ([]domain.T
 		conditions = append(conditions, "t.project_id = ?")
 		args = append(args, *filter.ProjectID)
 	}
+	if filter.Priority != nil {
+		conditions = append(conditions, "t.priority = ?")
+		args = append(args, string(*filter.Priority))
+	}
 
 	query := taskSelect
 	if len(conditions) > 0 {
