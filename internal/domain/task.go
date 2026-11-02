@@ -35,6 +35,19 @@ type NewTask struct {
 	ProjectID   *int64
 }
 
+// TaskUpdate describes which Task fields to change. Unset fields are left
+// untouched.
+type TaskUpdate struct {
+	Title          string
+	SetTitle       bool
+	Description    *string
+	SetDescription bool
+	Priority       Priority
+	SetPriority    bool
+	ProjectID      *int64
+	SetProject     bool
+}
+
 // BuildTask validates capture input into a NewTask.
 func BuildTask(title, description string, priority Priority) (NewTask, error) {
 	normalized, err := NormalizeTitle(title)

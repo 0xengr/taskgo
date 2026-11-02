@@ -157,6 +157,84 @@ func newUnarchiveCmd(r *runner) *cobra.Command {
 	}
 }
 
+func newEditCmd(r *runner) *cobra.Command {
+	var (
+		title       string
+		description string
+		priorityRaw string
+		projectName string
+		inbox       bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "edit <id>",
+		Short: "Edit a task",
+		Args:  exactlyOneArg,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parseTaskID(args[0])
+			if err != nil {
+				return err
+			}
+
+			titleSet := cmd.Flags().Changed("title")
+			descriptionSet := cmd.Flags().Changed("description")
+			prioritySet := cmd.Flags().Changed("priority")
+			projectSet := cmd.Flags().Changed("project")
+
+			if projectSet && inbox {
+				return &usageError{fmt.Errorf("--project and --inbox cannot be used together")}
+			}
+			if !titleSet && !descriptionSet && !prioritySet && !projectSet && !inbox {
+				return &usageError{fmt.Errorf("nothing to change")}
+			}
+
+			var priority domain.Priority
+			if prioritySet {
+				if strings.TrimSpace(priorityRaw) == "" {
+					return &usageError{fmt.Errorf("priority cannot be empty")}
+				}
+				priority, err = domain.ParsePriority(priorityRaw)
+				if err != nil {
+					return err
+				}
+			}
+
+			var task domain.Task
+			if err := r.withApp(cmd.Context(), func(a *app.App) error {
+				var err error
+				task, err = a.EditTask(cmd.Context(), app.EditTaskInput{
+					ID:             id,
+					Title:          title,
+					SetTitle:       titleSet,
+					Description:    description,
+					SetDescription: descriptionSet,
+					Priority:       priority,
+					SetPriority:    prioritySet,
+					ProjectName:    projectName,
+					SetProject:     projectSet,
+					Inbox:          inbox,
+				})
+				return err
+			}); err != nil {
+				return err
+			}
+
+			if r.json {
+				return r.writeJSON(newTaskView(task))
+			}
+			fmt.Fprintf(r.out, "Updated #%d\n", task.ID)
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&title, "title", "", "replace the title")
+	cmd.Flags().StringVarP(&description, "description", "d", "", "replace the description; an empty value clears it")
+	cmd.Flags().StringVar(&priorityRaw, "priority", "", "replace the priority: low, medium, or high")
+	cmd.Flags().StringVarP(&projectName, "project", "p", "", "move to a project by name")
+	cmd.Flags().BoolVar(&inbox, "inbox", false, "move to the inbox")
+	return cmd
+}
+
 func exactlyOneArg(_ *cobra.Command, args []string) error {
 	if len(args) != 1 {
 		return &usageError{fmt.Errorf("expected 1 argument, got %d", len(args))}
