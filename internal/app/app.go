@@ -11,6 +11,10 @@ import (
 	"github.com/0xengr/taskgo/internal/domain"
 )
 
+// ErrNoActiveProject reports that the current directory is not inside an
+// active Project's repository.
+var ErrNoActiveProject = errors.New("not inside an active project's repository")
+
 // App coordinates domain rules over the persistence port.
 type App struct {
 	store Store
@@ -76,20 +80,24 @@ func (a *App) resolveTarget(ctx context.Context, in AddTaskInput) (*domain.Proje
 		return &project, nil
 
 	default:
-		cwd, err := resolveCwd()
-		if err != nil {
-			return nil, fmt.Errorf("resolve current directory: %w", err)
-		}
-		projects, err := a.store.ListProjects(ctx, domain.VisibilityAll)
-		if err != nil {
-			return nil, err
-		}
-		project := DeepestProjectForPath(projects, cwd)
-		if project == nil || project.Archived() {
-			return nil, nil
-		}
-		return project, nil
+		return a.detectedProject(ctx)
 	}
+}
+
+func (a *App) detectedProject(ctx context.Context) (*domain.Project, error) {
+	cwd, err := resolveCwd()
+	if err != nil {
+		return nil, fmt.Errorf("resolve current directory: %w", err)
+	}
+	projects, err := a.store.ListProjects(ctx, domain.VisibilityAll)
+	if err != nil {
+		return nil, err
+	}
+	project := DeepestProjectForPath(projects, cwd)
+	if project == nil || project.Archived() {
+		return nil, nil
+	}
+	return project, nil
 }
 
 // ListTasks returns Tasks matching the query in canonical order.
@@ -414,6 +422,58 @@ func (a *App) DeleteProject(ctx context.Context, name string, strategy ProjectDe
 		return DeletedProject{}, err
 	}
 	return DeletedProject{Project: project}, nil
+}
+
+// NextScope selects the candidate set for next.
+type NextScope int
+
+const (
+	// NextAll considers every Project and the Inbox.
+	NextAll NextScope = iota
+	// NextProject narrows to one named Project.
+	NextProject
+	// NextHere narrows to the Detected Project.
+	NextHere
+)
+
+// NextInput carries the request for a next selection.
+type NextInput struct {
+	Scope       NextScope
+	ProjectName string
+	Count       int
+}
+
+// NextTasks returns up to Count open, active Tasks in canonical order.
+func (a *App) NextTasks(ctx context.Context, in NextInput) ([]domain.Task, error) {
+	if in.Count < 1 {
+		return nil, domain.NewValidationError("count must be at least 1")
+	}
+
+	query := domain.TaskQuery{
+		State:      domain.StateOpen,
+		Visibility: domain.VisibilityActive,
+		Limit:      in.Count,
+	}
+
+	switch in.Scope {
+	case NextProject:
+		project, err := a.findProject(ctx, in.ProjectName)
+		if err != nil {
+			return nil, err
+		}
+		query.ProjectID = &project.ID
+	case NextHere:
+		project, err := a.detectedProject(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if project == nil {
+			return nil, ErrNoActiveProject
+		}
+		query.ProjectID = &project.ID
+	}
+
+	return a.store.ListTasks(ctx, query)
 }
 
 func (a *App) findProject(ctx context.Context, name string) (domain.Project, error) {

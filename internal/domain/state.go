@@ -31,6 +31,8 @@ func ParseState(raw string) (State, error) {
 type TaskQuery struct {
 	State      State
 	Visibility Visibility
+	ProjectID  *int64
+	Limit      int
 }
 
 // Normalized fills in defaults for an unset query.

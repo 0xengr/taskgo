@@ -61,7 +61,8 @@ func (d *DB) InsertTask(ctx context.Context, task domain.NewTask, createdAt time
 func (d *DB) ListTasks(ctx context.Context, filter domain.TaskQuery) ([]domain.Task, error) {
 	filter = filter.Normalized()
 
-	conditions := make([]string, 0, 3)
+	conditions := make([]string, 0, 4)
+	args := make([]any, 0, 2)
 	switch filter.State {
 	case domain.StateOpen:
 		conditions = append(conditions, "t.completed_at IS NULL")
@@ -79,6 +80,10 @@ func (d *DB) ListTasks(ctx context.Context, filter domain.TaskQuery) ([]domain.T
 			"(t.archived_at IS NOT NULL OR p.archived_at IS NOT NULL)",
 		)
 	}
+	if filter.ProjectID != nil {
+		conditions = append(conditions, "t.project_id = ?")
+		args = append(args, *filter.ProjectID)
+	}
 
 	query := taskSelect
 	if len(conditions) > 0 {
@@ -92,8 +97,12 @@ func (d *DB) ListTasks(ctx context.Context, filter domain.TaskQuery) ([]domain.T
 		         END,
 		         t.created_at ASC,
 		         t.id ASC`
+	if filter.Limit > 0 {
+		query += "\n\t\tLIMIT ?"
+		args = append(args, filter.Limit)
+	}
 
-	rows, err := d.db.QueryContext(ctx, query)
+	rows, err := d.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
