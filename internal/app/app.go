@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/0xengr/taskgo/internal/domain"
@@ -160,6 +161,91 @@ func (a *App) ReopenTask(ctx context.Context, id int64) (domain.Task, error) {
 		return task, nil
 	}
 	return a.store.UpdateTaskCompleted(ctx, id, nil)
+}
+
+// EditTaskInput describes the fields the CLI asked to change. The Set flags
+// distinguish "leave alone" from "set to the zero value".
+type EditTaskInput struct {
+	ID             int64
+	Title          string
+	SetTitle       bool
+	Description    string
+	SetDescription bool
+	Priority       domain.Priority
+	SetPriority    bool
+	ProjectName    string
+	SetProject     bool
+	Inbox          bool
+}
+
+// EditTask applies all supplied fields in one update.
+func (a *App) EditTask(ctx context.Context, in EditTaskInput) (domain.Task, error) {
+	if _, err := a.GetTask(ctx, in.ID); err != nil {
+		return domain.Task{}, err
+	}
+	if in.SetProject && in.Inbox {
+		return domain.Task{}, domain.NewValidationError("--project and --inbox cannot be used together")
+	}
+
+	update := domain.TaskUpdate{}
+	changed := false
+
+	if in.SetTitle {
+		title, err := domain.NormalizeTitle(in.Title)
+		if err != nil {
+			return domain.Task{}, err
+		}
+		update.Title = title
+		update.SetTitle = true
+		changed = true
+	}
+
+	if in.SetDescription {
+		description := strings.TrimSpace(in.Description)
+		if description == "" {
+			update.Description = nil
+		} else {
+			update.Description = &description
+		}
+		update.SetDescription = true
+		changed = true
+	}
+
+	if in.SetPriority {
+		if !in.Priority.Valid() {
+			return domain.Task{}, domain.NewValidationError("priority must be one of low, medium, or high (got %q)", in.Priority)
+		}
+		update.Priority = in.Priority
+		update.SetPriority = true
+		changed = true
+	}
+
+	if in.SetProject {
+		project, err := a.findProject(ctx, in.ProjectName)
+		if err != nil {
+			return domain.Task{}, err
+		}
+		if project.Archived() {
+			return domain.Task{}, &domain.ConflictError{
+				Message: fmt.Sprintf("project %q is archived; unarchive it first", project.Name),
+			}
+		}
+		id := project.ID
+		update.ProjectID = &id
+		update.SetProject = true
+		changed = true
+	}
+
+	if in.Inbox {
+		update.ProjectID = nil
+		update.SetProject = true
+		changed = true
+	}
+
+	if !changed {
+		return domain.Task{}, domain.NewValidationError("nothing to change")
+	}
+	return a.store.UpdateTask(ctx, in.ID, update)
 }
 
 // AddProjectInput carries raw Project creation input from the CLI.

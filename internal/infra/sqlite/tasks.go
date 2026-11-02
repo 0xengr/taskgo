@@ -153,6 +153,39 @@ func (d *DB) UpdateTaskArchived(ctx context.Context, id int64, archivedAt *time.
 	return d.FindTaskByID(ctx, id)
 }
 
+func (d *DB) UpdateTask(ctx context.Context, id int64, update domain.TaskUpdate) (domain.Task, error) {
+	sets := make([]string, 0, 4)
+	args := make([]any, 0, 5)
+
+	if update.SetTitle {
+		sets = append(sets, "title = ?")
+		args = append(args, update.Title)
+	}
+	if update.SetDescription {
+		sets = append(sets, "description = ?")
+		args = append(args, nullableString(update.Description))
+	}
+	if update.SetPriority {
+		sets = append(sets, "priority = ?")
+		args = append(args, string(update.Priority))
+	}
+	if update.SetProject {
+		sets = append(sets, "project_id = ?")
+		args = append(args, nullableInt64(update.ProjectID))
+	}
+	if len(sets) == 0 {
+		return d.FindTaskByID(ctx, id)
+	}
+
+	args = append(args, id)
+	if _, err := d.db.ExecContext(ctx,
+		`UPDATE tasks SET `+strings.Join(sets, ", ")+` WHERE id = ?`, args...,
+	); err != nil {
+		return domain.Task{}, fmt.Errorf("update task: %w", err)
+	}
+	return d.FindTaskByID(ctx, id)
+}
+
 func scanTask(row rowScanner) (domain.Task, error) {
 	var (
 		task                             domain.Task
