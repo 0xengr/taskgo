@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"text/tabwriter"
@@ -28,6 +29,7 @@ func newProjectCmd(r *runner) *cobra.Command {
 		newProjectEditCmd(r),
 		newProjectArchiveCmd(r),
 		newProjectUnarchiveCmd(r),
+		newProjectDeleteCmd(r),
 	)
 	return cmd
 }
@@ -230,6 +232,117 @@ func newProjectUnarchiveCmd(r *runner) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+func newProjectDeleteCmd(r *runner) *cobra.Command {
+	var (
+		toInbox bool
+		force   bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "delete <name>",
+		Short: "Delete a project, choosing what happens to its tasks",
+		Args:  atLeastOneArg,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if toInbox && force {
+				return &usageError{fmt.Errorf("--to-inbox and --force cannot be used together")}
+			}
+
+			name := strings.Join(args, " ")
+			project, count, err := r.projectTaskCount(cmd.Context(), name)
+			if err != nil {
+				return err
+			}
+
+			strategy := app.DeleteProjectWithTasks
+			if toInbox {
+				strategy = app.DeleteProjectToInbox
+			} else {
+				if count > 0 && !force {
+					return fmt.Errorf(
+						"project %q has %s; use --to-inbox to preserve them or --force to delete them",
+						project.Name, taskCountLabel(count),
+					)
+				}
+				if !r.stdinIsTerminal() {
+					return errors.New("refusing to delete a project without an interactive confirmation; run this command in a terminal")
+				}
+
+				prompt := fmt.Sprintf("Delete project %q? [y/N] ", project.Name)
+				if count > 0 {
+					prompt = fmt.Sprintf("Delete project %q and %s? [y/N] ", project.Name, taskCountLabel(count))
+				}
+				ok, err := confirm(r.in, r.errOut, prompt)
+				if err != nil {
+					return err
+				}
+				if !ok {
+					return errors.New("deletion cancelled")
+				}
+			}
+
+			result, err := r.deleteProject(cmd.Context(), name, strategy)
+			if err != nil {
+				return err
+			}
+
+			if r.json {
+				view := projectDeletionView{Project: newProjectView(result.Project)}
+				if toInbox {
+					moved := result.MovedTasks
+					view.MovedTasks = &moved
+				}
+				return r.writeJSON(view)
+			}
+
+			if toInbox && result.MovedTasks > 0 {
+				fmt.Fprintf(r.out, "Deleted project %q (moved %s to Inbox)\n", result.Project.Name, taskCountLabel(result.MovedTasks))
+			} else {
+				fmt.Fprintf(r.out, "Deleted project %q\n", result.Project.Name)
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().BoolVar(&toInbox, "to-inbox", false, "move the project's tasks to the inbox")
+	cmd.Flags().BoolVar(&force, "force", false, "delete the project and its tasks (still requires confirmation)")
+	return cmd
+}
+
+func taskCountLabel(count int64) string {
+	if count == 1 {
+		return "1 task"
+	}
+	return fmt.Sprintf("%d tasks", count)
+}
+
+type projectDeletionView struct {
+	Project    projectView `json:"project"`
+	MovedTasks *int64      `json:"moved_tasks,omitempty"`
+}
+
+func (r *runner) projectTaskCount(ctx context.Context, name string) (domain.Project, int64, error) {
+	var (
+		project domain.Project
+		count   int64
+	)
+	err := r.withApp(ctx, func(a *app.App) error {
+		var err error
+		project, count, err = a.ProjectTaskCount(ctx, name)
+		return err
+	})
+	return project, count, err
+}
+
+func (r *runner) deleteProject(ctx context.Context, name string, strategy app.ProjectDeletionStrategy) (app.DeletedProject, error) {
+	var result app.DeletedProject
+	err := r.withApp(ctx, func(a *app.App) error {
+		var err error
+		result, err = a.DeleteProject(ctx, name, strategy)
+		return err
+	})
+	return result, err
 }
 
 type projectView struct {

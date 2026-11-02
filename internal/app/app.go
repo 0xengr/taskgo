@@ -365,6 +365,57 @@ func (a *App) UnarchiveProject(ctx context.Context, name string) (domain.Project
 	return a.store.UpdateProjectArchived(ctx, project.ID, nil)
 }
 
+// ProjectDeletionStrategy selects what happens to a Project's Tasks.
+type ProjectDeletionStrategy int
+
+const (
+	// DeleteProjectToInbox preserves Tasks by unassigning them.
+	DeleteProjectToInbox ProjectDeletionStrategy = iota
+	// DeleteProjectWithTasks destroys the Project and its Tasks.
+	DeleteProjectWithTasks
+)
+
+// DeletedProject reports what a Project deletion did.
+type DeletedProject struct {
+	Project    domain.Project
+	MovedTasks int64
+}
+
+// ProjectTaskCount returns a Project and how many Tasks belong to it.
+func (a *App) ProjectTaskCount(ctx context.Context, name string) (domain.Project, int64, error) {
+	project, err := a.findProject(ctx, name)
+	if err != nil {
+		return domain.Project{}, 0, err
+	}
+	count, err := a.store.CountProjectTasks(ctx, project.ID)
+	if err != nil {
+		return domain.Project{}, 0, err
+	}
+	return project, count, nil
+}
+
+// DeleteProject removes a Project using the chosen strategy. Both variants are
+// transactional inside the store.
+func (a *App) DeleteProject(ctx context.Context, name string, strategy ProjectDeletionStrategy) (DeletedProject, error) {
+	project, err := a.findProject(ctx, name)
+	if err != nil {
+		return DeletedProject{}, err
+	}
+
+	if strategy == DeleteProjectToInbox {
+		moved, err := a.store.DeleteProjectToInbox(ctx, project.ID)
+		if err != nil {
+			return DeletedProject{}, err
+		}
+		return DeletedProject{Project: project, MovedTasks: moved}, nil
+	}
+
+	if err := a.store.DeleteProjectWithTasks(ctx, project.ID); err != nil {
+		return DeletedProject{}, err
+	}
+	return DeletedProject{Project: project}, nil
+}
+
 func (a *App) findProject(ctx context.Context, name string) (domain.Project, error) {
 	_, key, err := domain.NormalizeProjectName(name)
 	if err != nil {
