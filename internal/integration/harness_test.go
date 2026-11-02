@@ -55,6 +55,15 @@ func run(t *testing.T, dbPath string, args ...string) result {
 func runIn(t *testing.T, dir, dbPath string, args ...string) result {
 	t.Helper()
 
+	got, err := execute(dir, dbPath, args...)
+	if err != nil {
+		t.Fatalf("run taskgo %v: %v", args, err)
+	}
+	return got
+}
+
+// execute is the goroutine-safe form used by concurrency tests.
+func execute(dir, dbPath string, args ...string) (result, error) {
 	cmd := exec.Command(binaryPath, args...)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "TASKGO_DB="+dbPath, "NO_COLOR=1")
@@ -70,11 +79,11 @@ func runIn(t *testing.T, dir, dbPath string, args ...string) result {
 		if errors.As(err, &exitErr) {
 			exit = exitErr.ExitCode()
 		} else {
-			t.Fatalf("run taskgo %v: %v", args, err)
+			return result{}, err
 		}
 	}
 
-	return result{stdout: stdout.String(), stderr: stderr.String(), exit: exit}
+	return result{stdout: stdout.String(), stderr: stderr.String(), exit: exit}, nil
 }
 
 func newDB(t *testing.T) string {

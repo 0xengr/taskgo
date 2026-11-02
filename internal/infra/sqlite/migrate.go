@@ -58,6 +58,10 @@ func loadMigrations(fsys fs.FS) ([]migration, error) {
 	return migrations, nil
 }
 
+// migrate applies pending migrations. The common path (already current) only
+// reads user_version. An upgrade takes an immediate transaction and re-reads
+// the version under that lock, so two processes starting together cannot both
+// apply the same migration.
 func migrate(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 	migrations, err := loadMigrations(fsys)
 	if err != nil {
@@ -66,39 +70,63 @@ func migrate(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 	if len(migrations) == 0 {
 		return errors.New("no migrations embedded in this build")
 	}
-
 	latest := migrations[len(migrations)-1].version
-	var current int
-	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&current); err != nil {
-		return fmt.Errorf("read schema version: %w", err)
+
+	current, err := readSchemaVersion(ctx, db)
+	if err != nil {
+		return err
 	}
 	if current > latest {
-		return fmt.Errorf("database schema v%d is newer than this taskgo supports (v%d)", current, latest)
+		return errSchemaNewer(current, latest)
+	}
+	if current == latest {
+		return nil
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("start migration transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	current, err = readSchemaVersion(ctx, tx)
+	if err != nil {
+		return err
+	}
+	if current > latest {
+		return errSchemaNewer(current, latest)
 	}
 
 	for _, m := range migrations {
 		if m.version <= current {
 			continue
 		}
-		if err := applyMigration(ctx, db, m); err != nil {
+		if _, err := tx.ExecContext(ctx, m.sql); err != nil {
 			return fmt.Errorf("migration %04d (%s): %w", m.version, m.name, err)
 		}
+		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", m.version)); err != nil {
+			return fmt.Errorf("record schema version %d: %w", m.version, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit migrations: %w", err)
 	}
 	return nil
 }
 
-func applyMigration(ctx context.Context, db *sql.DB, m migration) error {
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+type versionReader interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
 
-	if _, err := tx.ExecContext(ctx, m.sql); err != nil {
-		return err
+func readSchemaVersion(ctx context.Context, reader versionReader) (int, error) {
+	var version int
+	if err := reader.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
+		return 0, fmt.Errorf("read schema version: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", m.version)); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return version, nil
+}
+
+func errSchemaNewer(current, supported int) error {
+	return fmt.Errorf("database schema v%d is newer than this taskgo supports (v%d)", current, supported)
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/0xengr/taskgo/internal/app"
 	"github.com/0xengr/taskgo/internal/domain"
@@ -54,10 +55,25 @@ func Execute(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	root.SetErr(stderr)
 
 	if err := root.Execute(); err != nil {
+		err = presentError(err)
 		fmt.Fprintf(stderr, "taskgo: %v\n", err)
 		return codeFor(err)
 	}
 	return exitOK
+}
+
+// presentError turns the lock-contention error every driver formats
+// differently into one sentence users can act on. Corrupt database errors are
+// already described with their path by the store.
+func presentError(err error) error {
+	text := strings.ToLower(err.Error())
+	if strings.Contains(text, "database is busy") {
+		return err
+	}
+	if strings.Contains(text, "database is locked") || strings.Contains(text, "sqlite_busy") {
+		return errors.New("database is busy; another taskgo process is using it")
+	}
+	return err
 }
 
 func codeFor(err error) int {
