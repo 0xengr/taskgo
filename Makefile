@@ -2,7 +2,7 @@ GO      ?= go
 BINARY  ?= taskgo
 BIN_DIR ?= bin
 
-.PHONY: all build run test fmt vet check tidy clean help
+.PHONY: all build run test fmt vet check tidy clean bench help
 
 all: check build
 
@@ -25,6 +25,9 @@ vet: ## Run go vet
 	$(GO) vet ./...
 
 check: fmt vet test ## Format, vet, and test
+
+bench: build ## Run process-level benchmarks on 10,000 tasks
+	$(GO) run ./cmd/taskgo-bench -binary $(BIN_DIR)/$(BINARY)
 
 tidy: ## Sync go.mod and go.sum
 	$(GO) mod tidy
