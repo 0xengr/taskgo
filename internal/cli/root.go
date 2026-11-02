@@ -103,7 +103,14 @@ func newRoot(r *runner) *cobra.Command {
 	root.PersistentFlags().BoolVar(&r.json, "json", false, "emit JSON")
 	root.PersistentFlags().BoolVar(&r.noColor, "no-color", false, "disable color output")
 
-	root.AddCommand(newAddCmd(r), newListCmd(r), newProjectCmd(r))
+	root.AddCommand(
+		newAddCmd(r),
+		newListCmd(r),
+		newShowCmd(r),
+		newDoneCmd(r),
+		newReopenCmd(r),
+		newProjectCmd(r),
+	)
 	return root
 }
 
