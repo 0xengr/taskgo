@@ -60,7 +60,7 @@ func TestOpenReusesExistingDatabase(t *testing.T) {
 	}
 	defer db.Close()
 
-	tasks, err := db.ListOpenActive(ctx)
+	tasks, err := db.ListTasks(ctx, domain.TaskQuery{State: domain.StateOpen, Visibility: domain.VisibilityActive})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
@@ -254,7 +254,7 @@ func TestListOrdersByPriorityThenAge(t *testing.T) {
 		}
 	}
 
-	tasks, err := db.ListOpenActive(ctx)
+	tasks, err := db.ListTasks(ctx, domain.TaskQuery{State: domain.StateOpen, Visibility: domain.VisibilityActive})
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}

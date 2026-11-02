@@ -109,6 +109,8 @@ func newRoot(r *runner) *cobra.Command {
 		newShowCmd(r),
 		newDoneCmd(r),
 		newReopenCmd(r),
+		newArchiveCmd(r),
+		newUnarchiveCmd(r),
 		newProjectCmd(r),
 	)
 	return root

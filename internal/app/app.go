@@ -91,9 +91,36 @@ func (a *App) resolveTarget(ctx context.Context, in AddTaskInput) (*domain.Proje
 	}
 }
 
-// ListTasks returns open, unarchived Tasks in canonical order.
-func (a *App) ListTasks(ctx context.Context) ([]domain.Task, error) {
-	return a.store.ListOpenActive(ctx)
+// ListTasks returns Tasks matching the query in canonical order.
+func (a *App) ListTasks(ctx context.Context, query domain.TaskQuery) ([]domain.Task, error) {
+	return a.store.ListTasks(ctx, query)
+}
+
+// ArchiveTask hides a Task without changing its completion state. It is
+// idempotent.
+func (a *App) ArchiveTask(ctx context.Context, id int64) (domain.Task, error) {
+	task, err := a.GetTask(ctx, id)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if task.Archived() {
+		return task, nil
+	}
+
+	now := a.now()
+	return a.store.UpdateTaskArchived(ctx, id, &now)
+}
+
+// UnarchiveTask restores a Task's visibility. It is idempotent.
+func (a *App) UnarchiveTask(ctx context.Context, id int64) (domain.Task, error) {
+	task, err := a.GetTask(ctx, id)
+	if err != nil {
+		return domain.Task{}, err
+	}
+	if !task.Archived() {
+		return task, nil
+	}
+	return a.store.UpdateTaskArchived(ctx, id, nil)
 }
 
 // GetTask returns one Task by ID, including archived Tasks.

@@ -99,6 +99,64 @@ func newReopenCmd(r *runner) *cobra.Command {
 	}
 }
 
+func newArchiveCmd(r *runner) *cobra.Command {
+	return &cobra.Command{
+		Use:   "archive <id>",
+		Short: "Hide a task without changing its completion",
+		Args:  exactlyOneArg,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parseTaskID(args[0])
+			if err != nil {
+				return err
+			}
+
+			var task domain.Task
+			if err := r.withApp(cmd.Context(), func(a *app.App) error {
+				var err error
+				task, err = a.ArchiveTask(cmd.Context(), id)
+				return err
+			}); err != nil {
+				return err
+			}
+
+			if r.json {
+				return r.writeJSON(newTaskView(task))
+			}
+			fmt.Fprintf(r.out, "Archived #%d\n", task.ID)
+			return nil
+		},
+	}
+}
+
+func newUnarchiveCmd(r *runner) *cobra.Command {
+	return &cobra.Command{
+		Use:   "unarchive <id>",
+		Short: "Restore an archived task",
+		Args:  exactlyOneArg,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			id, err := parseTaskID(args[0])
+			if err != nil {
+				return err
+			}
+
+			var task domain.Task
+			if err := r.withApp(cmd.Context(), func(a *app.App) error {
+				var err error
+				task, err = a.UnarchiveTask(cmd.Context(), id)
+				return err
+			}); err != nil {
+				return err
+			}
+
+			if r.json {
+				return r.writeJSON(newTaskView(task))
+			}
+			fmt.Fprintf(r.out, "Unarchived #%d\n", task.ID)
+			return nil
+		},
+	}
+}
+
 func exactlyOneArg(_ *cobra.Command, args []string) error {
 	if len(args) != 1 {
 		return &usageError{fmt.Errorf("expected 1 argument, got %d", len(args))}
