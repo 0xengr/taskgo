@@ -1,7 +1,12 @@
 // Command taskgo is a local-first task and project tracker for developers.
-//
-// The command surface is intentionally not wired up yet; this entrypoint only
-// establishes the layout.
 package main
 
-func main() {}
+import (
+	"os"
+
+	"github.com/0xengr/taskgo/internal/cli"
+)
+
+func main() {
+	os.Exit(cli.Execute(os.Args[1:], os.Stdout, os.Stderr))
+}
